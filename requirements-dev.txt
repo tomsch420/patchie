@@ -1,0 +1,4 @@
+-r requirements.txt
+pandas>=2.1.4
+scipy>=1.11.4
+pyjpt>=0.1.31

@@ -1,0 +1,5 @@
+probabilistic_model>=3.0.6
+sqlalchemy>=2.0.25
+pymysql>=1.1.0
+numpy==1.26.4
+fglib2>=1.1.5
