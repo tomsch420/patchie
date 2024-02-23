@@ -49,4 +49,5 @@ class FolderModelLoader(ModelLoader):
         raise ValueError(f"No model found for table {table.__tablename__}")
 
     def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
-        ...
+        variables = [f"{table.__tablename__}.latent" for table in tables]
+        print(variables)

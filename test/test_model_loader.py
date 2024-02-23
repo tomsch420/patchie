@@ -29,7 +29,7 @@ class ModelLoaderTestCase(ORMMixin, unittest.TestCase):
         model = JPT(variables, min_samples_leaf=0.4, min_impurity_improvement=0.05)
         model.fit(dataframe)
 
-        file_1_name = points[0].__tablename__ + ".json"
+        file_1_name = points[0].__tablename__ + ".pm"
         file_1_path = os.path.join(self.temporary_directory.name, file_1_name)
         with open(file_1_path, "w") as f:
             json.dump(model.probabilistic_circuit.to_json(), f)
@@ -38,7 +38,7 @@ class ModelLoaderTestCase(ORMMixin, unittest.TestCase):
         model = JPT(variables, min_samples_leaf=0.4, min_impurity_improvement=0.05)
         model.fit(dataframe)
 
-        file_2_name = colors[0].__tablename__ + ".json"
+        file_2_name = colors[0].__tablename__ + ".pm"
         file_2_path = os.path.join(self.temporary_directory.name, file_2_name)
 
         with open(file_2_path, "w") as f:
@@ -49,4 +49,7 @@ class ModelLoaderTestCase(ORMMixin, unittest.TestCase):
 
     def test_load_model(self):
         model = self.model_loader.load_model(Point)
-        print(model)
+        self.assertIsInstance(model.root, JPT)
+
+    def test_load_interaction_terms(self):
+        model = self.model_loader.load_interaction_model([Point, Color])
