@@ -27,6 +27,14 @@ class ModelLoader:
         """
         raise NotImplementedError
 
+    def save_model(self, model: ProbabilisticCircuit, table: Type[DeclarativeBase]):
+        """
+        Save a model of a table.
+        :param model: The model to save.
+        :param table: The table that describes the model.
+        """
+        raise NotImplementedError
+
 
 class FolderModelLoader(ModelLoader):
     """
@@ -34,9 +42,17 @@ class FolderModelLoader(ModelLoader):
     """
 
     folder_path: str
+    file_extension: str
 
-    def __init__(self, folder_path: str):
+    def __init__(self, folder_path: str, file_extension: str = ".json"):
         self.folder_path = folder_path
+        self.file_extension = file_extension
+
+    def filename_of_table(self, table: Type[DeclarativeBase]) -> str:
+        return f"{table.__tablename__}{self.file_extension}"
+
+    def path_of_table(self, table: Type[DeclarativeBase]) -> str:
+        return os.path.join(self.folder_path, f"{table.__tablename__}{self.file_extension}")
 
     def load_model(self, table: Type[DeclarativeBase]) -> ProbabilisticCircuit:
         for file in os.listdir(self.folder_path):
@@ -51,3 +67,8 @@ class FolderModelLoader(ModelLoader):
     def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
         variables = [f"{table.__tablename__}.latent" for table in tables]
         print(variables)
+
+    def save_model(self, model: ProbabilisticCircuit, table: Type[DeclarativeBase]):
+        filename = os.path.join(self.folder_path, f"{table.__tablename__}{self.file_extension}")
+        with open(filename, "w") as f:
+            json.dump(model.to_json(), f)

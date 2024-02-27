@@ -1,8 +1,10 @@
+import os
 import unittest
 
 from sqlalchemy import select, func, join
 
 from orm import *
+from patchie.model_loader import FolderModelLoader
 from patchie.patchie import Patchie
 from patchie.variables import variables_and_dataframe_from_objects, Symbolic, SQLColumn
 from probabilistic_model.learning.jpt.jpt import JPT
@@ -10,6 +12,7 @@ from probabilistic_model.probabilistic_circuit.distributions import SymbolicDist
 import networkx as nx
 import matplotlib.pyplot as plt
 import portion
+import tempfile
 
 
 class ContinuousPatchieTestCase(ORMMixin, unittest.TestCase):
@@ -102,6 +105,24 @@ class DiscretePatchieTestCase(ORMMixin, unittest.TestCase):
         query = (Color.color.notin_(["red", "blue"]))
         event = self.model.event_from_query(query)
         self.assertEqual(event[self.color], ("green", ))
+
+
+class FittingTestCase(ORMMixin, unittest.TestCase):
+
+    model: Patchie
+    folder: str
+
+    def setUp(self):
+        super().setUp()
+        self.model = Patchie()
+
+        self.folder = tempfile.mkdtemp()
+        model_loader = FolderModelLoader(self.folder)
+        self.model.model_loader = model_loader
+
+    def test_fitting(self):
+        self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
+        self.assertEqual(set(os.listdir(self.folder)), {"Color.json", "ColoredPoint.json", "Point.json"})
 
 
 if __name__ == '__main__':

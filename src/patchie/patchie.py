@@ -1,19 +1,35 @@
 import operator
+from dataclasses import dataclass
 from typing import Tuple
 
 import networkx as nx
 from matplotlib import pyplot as plt
+from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit)
 from random_events.events import Event
+from sqlalchemy.orm import DeclarativeBase
 
 from sqlalchemy.sql.elements import ColumnElement, BinaryExpression, BooleanClauseList
 from sqlalchemy.sql.selectable import Join
 from sqlalchemy.sql.operators import in_op, not_in_op
-from sqlalchemy import Table
+from sqlalchemy import Table, select
+from sqlalchemy.orm import Session
+
+from typing_extensions import Type, List
 
 from .utils import binary_expression_to_continuous_constraint
-from .variables import Integer, Continuous, Symbolic, Column, SQLColumn, Variable
+from .variables import Integer, Continuous, Symbolic, Column, SQLColumn, Variable, variables_and_dataframe_from_objects
 from .model_loader import ModelLoader
+import pandas as pd
+
+
+@dataclass
+class HyperParameters:
+
+    min_samples_leaf: float = 0.1
+    min_impurity_improvement: float = 0.
+    max_leaves: float = float("inf")
+    max_depth: float = float("inf")
 
 
 class Patchie(ProbabilisticCircuit):
@@ -137,3 +153,17 @@ class Patchie(ProbabilisticCircuit):
             interaction_model = self.model_loader.load_interaction_model([source, target])
             self.nodes[source_model].add_interaction_model(interaction_model, self.nodes[target_model])
 
+    def fit_to_tables(self, session: Session, tables: List[Type[DeclarativeBase]]):
+        """
+        Fit the model to the tables and save them using the model loader.
+
+        :param session: The session to use to fit the model.
+        :param tables: The tables to fit the model to.
+        """
+        for table in tables:
+            query = select(table)
+            data = session.scalars(query).all()
+            variables, dataframe = variables_and_dataframe_from_objects(data)
+            model = JPT(variables, min_samples_leaf=0.2)
+            model.fit(dataframe)
+            self.model_loader.save_model(model.probabilistic_circuit, table)
