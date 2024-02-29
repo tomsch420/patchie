@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 from typing_extensions import Type, List
 
 from .utils import binary_expression_to_continuous_constraint
-from .variables import Integer, Continuous, Symbolic, Column, SQLColumn, Variable, variables_and_dataframe_from_objects
+from .variables import Integer, Continuous, Symbolic, Column, SQLColumn, Variable, variables_and_dataframe_from_objects, \
+    relevant_columns_from, variables_and_dataframe_from_columns_and_query
 from .model_loader import ModelLoader
 import pandas as pd
 
@@ -35,6 +36,7 @@ class HyperParameters:
 class Patchie(ProbabilisticCircuit):
 
     model_loader: ModelLoader
+    relation_depth: int = 1
 
     @property
     def variables(self) -> Tuple[Variable, ...]:
@@ -161,9 +163,31 @@ class Patchie(ProbabilisticCircuit):
         :param tables: The tables to fit the model to.
         """
         for table in tables:
-            query = select(table)
-            data = session.scalars(query).all()
-            variables, dataframe = variables_and_dataframe_from_objects(data)
-            model = JPT(variables, min_samples_leaf=0.2)
-            model.fit(dataframe)
-            self.model_loader.save_model(model.probabilistic_circuit, table)
+            model = self.fit_to_table(session, table)
+            self.model_loader.save_model(model, table)
+
+    def fit_to_table(self, session, table: Type[DeclarativeBase]) -> ProbabilisticCircuit:
+        """
+        Fit the model to a table and save it using the model loader.
+
+        :param session: The session used to get the data for the fitting.
+        :param table: The table to fit the model to.
+        """
+        columns, foreign_columns, query = relevant_columns_from(table.__table__, self.relation_depth)
+        variables, foreign_variables, dataframe = variables_and_dataframe_from_columns_and_query(
+            columns, foreign_columns, query, session)
+        model = JPT(variables + foreign_variables, targets=variables + foreign_variables, features=variables,
+                    min_samples_leaf=0.2)
+        model = model.fit(dataframe).marginal(variables, simplify_if_univariate=False)
+        return model.probabilistic_circuit
+
+    def fit_interaction_model(self, session: Session, table_1: Type[DeclarativeBase], table_2: Type[DeclarativeBase]):
+        """
+        Fit an interaction term between the two tables. The tables must be join-able.
+
+        :param session: The session used to get the data for the fitting.
+        :param table_1: One of the tables of the interaction term.
+        :param table_2: The other table of the interaction term.
+
+        :return: The fitted interaction term.
+        """

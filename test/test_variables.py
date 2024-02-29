@@ -37,31 +37,27 @@ class VariableTestCase(unittest.TestCase):
         self.assertEqual(variable, deserialized)
         self.assertEqual(variable.column, deserialized.column)
 
+    def test_relevant_columns_from_table(self):
+        columns, foreign_columns, query = relevant_columns_from(ColoredPoint.__table__, 0)
+        self.assertEqual([c.name for c in columns + foreign_columns],
+                         ["ColoredPoint.frame"])
 
-@unittest.skip("Unsure how this should look like from a use case.")
-class VariableInferenceTestCase(ORMMixin, unittest.TestCase):
+    def test_relevant_columns_from_table_with_relations(self):
+        columns, foreign_columns, query = relevant_columns_from(ColoredPoint.__table__, 1)
+        self.assertSetEqual(set([c.name for c in columns + foreign_columns]),
+                            {"ColoredPoint.frame", "ColoredPoint.Point.x", "ColoredPoint.Point.y",
+                             "ColoredPoint.Color.color"})
 
-    @property
-    def points(self):
-        return self.session.execute(select(Point)).scalars().all()
+    def test_relevant_columns_from_table_with_relations_and_unknown_parent(self):
+        columns, foreign_columns, query = relevant_columns_from(Point.__table__, 1)
+        self.assertSetEqual(set([c.name for c in columns + foreign_columns]),
+                            {"Point.x", "Point.y", "Point.ColoredPoint.frame"})
 
-    def test_relevant_columns_from(self):
-        columns = relevant_columns_from(Point.__table__)
-        self.assertEqual(columns, [Point.x, Point.y, Color.color])
-
-    def test_dataframe_from_objects(self):
-        dataframe = dataframe_from_objects(self.points)
-        self.assertEqual(dataframe.columns.tolist(), ["x", "y"])
-
-    def test_variables_and_dataframe_from_objects(self):
-        variables, dataframe = variables_and_dataframe_from_objects(self.points)
-        self.assertEqual(dataframe.columns.tolist(), ["Point.x", "Point.y", "Color.color"])
-
-    @unittest.skip
-    def test_variables_and_dataframe_from_objects_with_alias(self):
-        points = self.orm_session.execute(select(aliased(Point, name="Point2"))).scalars().all()
-        variables, dataframe = variables_and_dataframe_from_objects(points)
-        self.assertEqual(dataframe.columns.tolist(), ["Point2.x", "Point2.y", "Point2.color"])
+    def test_sql_column_from_label(self):
+        label = Point.x.label("ColoredPoint.Point.x")
+        column = SQLColumn.from_label(label)
+        self.assertEqual(column.column_name, "x")
+        self.assertEqual(column.table_name, "Point")
 
 
 if __name__ == '__main__':

@@ -66,7 +66,6 @@ class FolderModelLoader(ModelLoader):
 
     def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
         variables = [f"{table.__tablename__}.latent" for table in tables]
-        print(variables)
 
     def save_model(self, model: ProbabilisticCircuit, table: Type[DeclarativeBase]):
         filename = os.path.join(self.folder_path, f"{table.__tablename__}{self.file_extension}")

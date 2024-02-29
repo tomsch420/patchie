@@ -6,7 +6,8 @@ from sqlalchemy import select, func, join
 from orm import *
 from patchie.model_loader import FolderModelLoader
 from patchie.patchie import Patchie
-from patchie.variables import variables_and_dataframe_from_objects, Symbolic, SQLColumn
+from patchie.variables import (variables_and_dataframe_from_objects, Symbolic, SQLColumn,
+                               variables_and_dataframe_from_columns_and_query, relevant_columns_from)
 from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.probabilistic_circuit.distributions import SymbolicDistribution
 import networkx as nx
@@ -115,7 +116,6 @@ class FittingTestCase(ORMMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.model = Patchie()
-
         self.folder = tempfile.mkdtemp()
         model_loader = FolderModelLoader(self.folder)
         self.model.model_loader = model_loader
@@ -123,6 +123,30 @@ class FittingTestCase(ORMMixin, unittest.TestCase):
     def test_fitting(self):
         self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
         self.assertEqual(set(os.listdir(self.folder)), {"Color.json", "ColoredPoint.json", "Point.json"})
+
+    def test_fitting_to_table(self):
+        model = self.model.fit_to_table(self.session, ColoredPoint)
+        self.assertEqual(len(model.variables), 1)
+        self.assertEqual(model.variables[0].name, "ColoredPoint.frame")
+
+    def test_fitting_to_table_with_child_join_table(self):
+        model = self.model.fit_to_table(self.session, Point)
+        self.assertEqual(len(model.variables), 2)
+        self.assertEqual(model.variables[0].name, "Point.x")
+        self.assertEqual(model.variables[1].name, "Point.y")
+
+    def test_fitting_of_interaction_model(self):
+        self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
+        self.model.fit_interaction_model(self.session, ColoredPoint, Point)
+        self.assertEqual(len(self.model.edges), 3)
+        self.assertEqual(len(self.model.nodes), 4)
+
+    def test_variables_and_dataframe_from_query_result_and_columns(self):
+        columns, foreign_columns, query = relevant_columns_from(Point.__table__, 1)
+        variables, foreign_variables, dataframe = variables_and_dataframe_from_columns_and_query(
+            columns, foreign_columns, query, self.session)
+        self.assertEqual(len(variables), 2)
+
 
 
 if __name__ == '__main__':

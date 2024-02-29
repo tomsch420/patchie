@@ -28,21 +28,12 @@ class ModelLoaderTestCase(ORMMixin, unittest.TestCase):
         variables, dataframe = variables_and_dataframe_from_objects(points)
         model = JPT(variables, min_samples_leaf=0.4, min_impurity_improvement=0.05)
         model.fit(dataframe)
-
-        file_1_name = points[0].__tablename__ + ".pm"
-        file_1_path = os.path.join(self.temporary_directory.name, file_1_name)
-        with open(file_1_path, "w") as f:
-            json.dump(model.probabilistic_circuit.to_json(), f)
+        self.model_loader.save_model(model.probabilistic_circuit, Point)
 
         variables, dataframe = variables_and_dataframe_from_objects(colors)
         model = JPT(variables, min_samples_leaf=0.4, min_impurity_improvement=0.05)
         model.fit(dataframe)
-
-        file_2_name = colors[0].__tablename__ + ".pm"
-        file_2_path = os.path.join(self.temporary_directory.name, file_2_name)
-
-        with open(file_2_path, "w") as f:
-            json.dump(model.probabilistic_circuit.to_json(), f)
+        self.model_loader.save_model(model.probabilistic_circuit, Color)
 
     def test_setup(self):
         self.assertEqual(self.temporary_directory.name, self.model_loader.folder_path)
@@ -53,3 +44,6 @@ class ModelLoaderTestCase(ORMMixin, unittest.TestCase):
 
     def test_load_interaction_terms(self):
         model = self.model_loader.load_interaction_model([Point, Color])
+
+    def test_save_model(self):
+        self.assertSetEqual(set(os.listdir(self.temporary_directory.name)), {"Point.json", "Color.json"})
