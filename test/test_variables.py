@@ -55,7 +55,7 @@ class VariableTestCase(unittest.TestCase):
 
     def test_sql_column_from_label(self):
         label = Point.x.label("ColoredPoint.Point.x")
-        column = SQLColumn.from_label(label)
+        column = SQLColumn.from_column_element(label)
         self.assertEqual(column.column_name, "x")
         self.assertEqual(column.table_name, "Point")
 

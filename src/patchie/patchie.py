@@ -3,10 +3,15 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import networkx as nx
+import numpy as np
 from matplotlib import pyplot as plt
+from probabilistic_model.bayesian_network.bayesian_network import BayesianNetwork
 from probabilistic_model.learning.jpt.jpt import JPT
-from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit)
+from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit, SmoothSumUnit,
+                                                                             DeterministicSumUnit)
+from probabilistic_model.distributions.multinomial import MultinomialDistribution
 from random_events.events import Event
+from random_events.variables import Symbolic as RESymbolic
 from sqlalchemy.orm import DeclarativeBase
 
 from sqlalchemy.sql.elements import ColumnElement, BinaryExpression, BooleanClauseList
@@ -18,10 +23,12 @@ from sqlalchemy.orm import Session
 from typing_extensions import Type, List
 
 from .utils import binary_expression_to_continuous_constraint
-from .variables import Integer, Continuous, Symbolic, Column, SQLColumn, Variable, variables_and_dataframe_from_objects, \
+from .variables import Integer, Continuous, Symbolic, Column, Variable, variables_and_dataframe_from_objects, \
     relevant_columns_from, variables_and_dataframe_from_columns_and_query
 from .model_loader import ModelLoader
 import pandas as pd
+import tqdm
+from .constants import tomato_red, tomato_green, tomato_skin_color
 
 
 @dataclass
@@ -48,7 +55,7 @@ class Patchie(ProbabilisticCircuit):
         :param column: The column to match.
         :return: The variable that matches the column.
         """
-        wrapped_column = SQLColumn(column)
+        wrapped_column = Column(column)
         for variable in self.variables:
             if variable.name == wrapped_column.name:
                 return variable
@@ -135,25 +142,25 @@ class Patchie(ProbabilisticCircuit):
 
         return table
 
-    def load_models_from_join(self, join_statement: Join):
+    def load_models_from_join(self, join_statement: Join) -> BayesianNetwork:
         join_graph = nx.Graph()
         self.add_from_join_statement_to_graph(join_statement, join_graph)
-        assert nx.is_forest(join_graph), "The join statement must be a forest."
-        print([(source.name, target.name) for source, target in join_graph.edges])
+
+        assert nx.is_tree(join_graph), "The join statement must be a tree."
+
+        model = BayesianNetwork()
+
         models = dict()
         for table in join_graph.nodes:
+            print(table)
             models[table] = self.model_loader.load_model(table)
-            self.add_nodes_from(models[table].nodes)
-            self.add_edges_from(models[table].unweighted_edges)
-            self.add_weighted_edges_from(models[table].weighted_edges)
-            print(self)
 
         for edge in join_graph.edges:
             source, target = edge
             source_model = models[source]
             target_model = models[target]
             interaction_model = self.model_loader.load_interaction_model([source, target])
-            self.nodes[source_model].add_interaction_model(interaction_model, self.nodes[target_model])
+
 
     def fit_to_tables(self, session: Session, tables: List[Type[DeclarativeBase]]):
         """
@@ -178,12 +185,14 @@ class Patchie(ProbabilisticCircuit):
             columns, foreign_columns, query, session)
         model = JPT(variables + foreign_variables, targets=variables + foreign_variables, features=variables,
                     min_samples_leaf=0.2)
-        model = model.fit(dataframe).marginal(variables, simplify_if_univariate=False)
+        model = model.fit(dataframe).marginal(variables, simplify_if_univariate=False, as_deterministic_sum=True)
         return model.probabilistic_circuit
 
     def fit_interaction_model(self, session: Session, table_1: Type[DeclarativeBase], table_2: Type[DeclarativeBase]):
         """
         Fit an interaction term between the two tables. The tables must be join-able.
+        The models that are associated with the tables must be deterministic sum units.
+        The variables in said models must be the same that are obtained by joining the tables.
 
         :param session: The session used to get the data for the fitting.
         :param table_1: One of the tables of the interaction term.
@@ -191,3 +200,50 @@ class Patchie(ProbabilisticCircuit):
 
         :return: The fitted interaction term.
         """
+
+        # load both models
+        model_1 = self.model_loader.load_model(table_1)
+        model_2 = self.model_loader.load_model(table_2)
+
+        # enforce that both models are deterministic sum units
+        assert isinstance(model_1.root, DeterministicSumUnit)
+        assert isinstance(model_2.root, DeterministicSumUnit)
+
+        # create the latent variables
+        latent_variable_1 = RESymbolic(f"{table_1.__tablename__}.latent",
+                                       domain=range(len(model_1.root.subcircuits)))
+        latent_variable_2 = RESymbolic(f"{table_2.__tablename__}.latent",
+                                       domain=range(len(model_2.root.subcircuits)))
+
+        # get the relevant columns from the tables
+        columns_1, _, _ = relevant_columns_from(table_1.__table__, 0)
+        columns_2, _, _ = relevant_columns_from(table_2.__table__, 0)
+
+        # get the joined data from the tables
+        query = select(*columns_1, *columns_2).join(table_2)
+        dataframe = pd.read_sql_query(query, session.bind)
+
+        # check that the columns are the same as the variables
+        assert set(dataframe.columns) == set([variable.name for variable in model_1.variables + model_2.variables])
+
+        # initialize encodings
+        encoded_values = np.empty((len(dataframe), 2), dtype=int)
+        for index, sample in tqdm.tqdm(dataframe.iterrows(), total=len(dataframe),
+                                       desc=f"Encoding samples for interaction between {table_1.__tablename__} "
+                                            f"and {table_2.__tablename__}", colour=tomato_red):
+
+            # get the relevant columns from the respective samples
+            sample_for_model_1 = sample[[variable.name for variable in model_1.variables]].tolist()
+            sample_for_model_2 = sample[[variable.name for variable in model_2.variables]].tolist()
+
+            # encode the values of the dataframe into subcircuit indices
+            encoded_values[index, 0] = model_1.root.sub_circuit_index_of_sample(sample_for_model_1)
+            encoded_values[index, 1] = model_2.root.sub_circuit_index_of_sample(sample_for_model_2)
+
+        # create the interaction model
+        interaction_model = MultinomialDistribution([latent_variable_1, latent_variable_2])
+        interaction_model._variables = [latent_variable_1, latent_variable_2]
+
+        # fit the interaction model
+        interaction_model._fit(encoded_values.tolist())
+        return interaction_model

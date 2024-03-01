@@ -2,6 +2,7 @@ from typing_extensions import Type, List
 from sqlalchemy.orm import DeclarativeBase
 from probabilistic_model.probabilistic_model import ProbabilisticModel
 from probabilistic_model.probabilistic_circuit.probabilistic_circuit import ProbabilisticCircuit
+from probabilistic_model.distributions.multinomial import MultinomialDistribution
 import os
 import json
 
@@ -19,14 +20,6 @@ class ModelLoader:
         """
         raise NotImplementedError
 
-    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
-        """
-        Load an interaction model that describes how to connect the latent variables.
-        :param tables: The tables that are involved in the interaction
-        :return: The model that is described by the table interaction.
-        """
-        raise NotImplementedError
-
     def save_model(self, model: ProbabilisticCircuit, table: Type[DeclarativeBase]):
         """
         Save a model of a table.
@@ -35,6 +28,23 @@ class ModelLoader:
         """
         raise NotImplementedError
 
+    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
+        """
+        Load an interaction model that describes how to connect the latent variables.
+        :param tables: The tables that are involved in the interaction
+        :return: The model that is described by the table interaction.
+        """
+        raise NotImplementedError
+
+    def save_interaction_model(self, model: ProbabilisticModel, tables: List[Type[DeclarativeBase]]):
+        """
+        Load an interaction model that describes how to connect the latent variables.
+
+        :param model: The model to save.
+        :param tables: The tables that are involved in the interaction
+        :return: The model that is described by the table interaction.
+        """
+        raise NotImplementedError
 
 class FolderModelLoader(ModelLoader):
     """
@@ -52,22 +62,29 @@ class FolderModelLoader(ModelLoader):
         return f"{table.__tablename__}{self.file_extension}"
 
     def path_of_table(self, table: Type[DeclarativeBase]) -> str:
-        return os.path.join(self.folder_path, f"{table.__tablename__}{self.file_extension}")
+        return os.path.join(self.folder_path, f"{self.filename_of_table(table)}")
+
+    def filename_of_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> str:
+        table_names = sorted([table.__tablename__ for table in tables])
+        table_names = "_".join(table_names)
+        return f"interaction_{table_names}.{self.file_extension}"
+
+    def path_of_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> str:
+        return os.path.join(self.folder_path, self.filename_of_interaction_model(tables))
 
     def load_model(self, table: Type[DeclarativeBase]) -> ProbabilisticCircuit:
-        for file in os.listdir(self.folder_path):
-            if file.startswith(table.__tablename__):
-                filename = os.path.join(self.folder_path, file)
-                with open(filename, "r") as f:
-                    model = json.load(f)
-                model = ProbabilisticCircuit.from_json(model)
-                return model
-        raise ValueError(f"No model found for table {table.__tablename__}")
-
-    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
-        variables = [f"{table.__tablename__}.latent" for table in tables]
+        with open(self.path_of_table(table), "r") as f:
+            model = json.load(f)
+        model = ProbabilisticCircuit.from_json(model)
+        return model
 
     def save_model(self, model: ProbabilisticCircuit, table: Type[DeclarativeBase]):
-        filename = os.path.join(self.folder_path, f"{table.__tablename__}{self.file_extension}")
-        with open(filename, "w") as f:
+        with open(self.path_of_table(table), "w") as f:
+            json.dump(model.to_json(), f)
+
+    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
+        ...
+
+    def save_interaction_model(self, model: MultinomialDistribution, tables: List[Type[DeclarativeBase]]):
+        with open(self.path_of_interaction_model(tables), "w") as f:
             json.dump(model.to_json(), f)

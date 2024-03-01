@@ -6,8 +6,8 @@ from sqlalchemy import select, func, join
 from orm import *
 from patchie.model_loader import FolderModelLoader
 from patchie.patchie import Patchie
-from patchie.variables import (variables_and_dataframe_from_objects, Symbolic, SQLColumn,
-                               variables_and_dataframe_from_columns_and_query, relevant_columns_from)
+from patchie.variables import (variables_and_dataframe_from_objects, Symbolic,
+                               variables_and_dataframe_from_columns_and_query, relevant_columns_from, Column)
 from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.probabilistic_circuit.distributions import SymbolicDistribution
 import networkx as nx
@@ -79,7 +79,7 @@ class ContinuousPatchieTestCase(ORMMixin, unittest.TestCase):
 class DiscretePatchieTestCase(ORMMixin, unittest.TestCase):
 
     model: Patchie
-    color = Symbolic(SQLColumn(Color.color), {"red", "blue", "green"})
+    color = Symbolic(Column.from_column_element(Color.color), {"red", "blue", "green"})
 
     def setUp(self):
         super().setUp()
@@ -137,9 +137,8 @@ class FittingTestCase(ORMMixin, unittest.TestCase):
 
     def test_fitting_of_interaction_model(self):
         self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
-        self.model.fit_interaction_model(self.session, ColoredPoint, Point)
-        self.assertEqual(len(self.model.edges), 3)
-        self.assertEqual(len(self.model.nodes), 4)
+        interaction_model = self.model.fit_interaction_model(self.session, ColoredPoint, Point)
+        self.assertEqual([v.name for v in interaction_model.variables], ["ColoredPoint.latent", "Point.latent"])
 
     def test_variables_and_dataframe_from_query_result_and_columns(self):
         columns, foreign_columns, query = relevant_columns_from(Point.__table__, 1)
@@ -147,6 +146,27 @@ class FittingTestCase(ORMMixin, unittest.TestCase):
             columns, foreign_columns, query, self.session)
         self.assertEqual(len(variables), 2)
 
+
+class QueryFittingTestCase(ORMMixin, unittest.TestCase):
+
+    model: Patchie
+    folder: str
+
+    def setUp(self):
+        super().setUp()
+        self.model = Patchie()
+        self.folder = tempfile.mkdtemp()
+        model_loader = FolderModelLoader(self.folder)
+        self.model.model_loader = model_loader
+        self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
+        interaction_model = self.model.fit_interaction_model(self.session, ColoredPoint, Point)
+        self.model.model_loader.save_interaction_model(interaction_model, [ColoredPoint, Point])
+        interaction_model = self.model.fit_interaction_model(self.session, ColoredPoint, Color)
+        self.model.model_loader.save_interaction_model(interaction_model, [ColoredPoint, Color])
+
+    def test_query_construction(self):
+        query = join(Point, ColoredPoint).join(Color)
+        load_models_from_join = self.model.load_models_from_join(query)
 
 
 if __name__ == '__main__':
