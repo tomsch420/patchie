@@ -29,6 +29,8 @@ from .model_loader import ModelLoader
 import pandas as pd
 import tqdm
 from .constants import tomato_red, tomato_green, tomato_skin_color
+from probabilistic_model.bayesian_network.distributions import (DiscreteDistribution, ConditionalProbabilisticCircuit,
+                                                                ConditionalProbabilityTable)
 
 
 @dataclass
@@ -113,10 +115,10 @@ class Patchie(ProbabilisticCircuit):
         else:
             raise NotImplementedError(f"Query of type {type(query)} not supported.")
 
-    def add_from_join_statement_to_graph(self, join_statement: Join, join_graph: nx.Graph):
+    def add_from_join_statement_to_graph(self, join_statement: Join, join_graph: nx.DiGraph):
 
         if isinstance(join_statement.left, Table) and isinstance(join_statement.right, Table):
-            join_graph.add_edge(join_statement.left, join_statement.right)
+            join_graph.add_edge(join_statement.right, join_statement.left)
             return join_statement.right
 
         if isinstance(join_statement.left, Table):
@@ -138,29 +140,50 @@ class Patchie(ProbabilisticCircuit):
 
         if recursive_join_statement is not None:
             connecting_table = self.add_from_join_statement_to_graph(recursive_join_statement, join_graph)
-            join_graph.add_edge(table, connecting_table)
+            join_graph.add_edge(connecting_table, table)
 
         return table
 
     def load_models_from_join(self, join_statement: Join) -> BayesianNetwork:
-        join_graph = nx.Graph()
+        join_graph = nx.DiGraph()
         self.add_from_join_statement_to_graph(join_statement, join_graph)
 
         assert nx.is_tree(join_graph), "The join statement must be a tree."
 
-        model = BayesianNetwork()
+        bayesian_network = BayesianNetwork()
 
-        models = dict()
-        for table in join_graph.nodes:
-            print(table)
-            models[table] = self.model_loader.load_model(table)
+        latent_nodes = dict()
+
+        for table, in_degree in join_graph.in_degree:
+            model = self.model_loader.load_model(table)
+
+            # construct latent node
+            latent_variable = self.latent_variable(table, model)
+            if in_degree == 0:
+                latent_node = DiscreteDistribution(latent_variable, model.root.weights)
+            else:
+                latent_node = ConditionalProbabilityTable(latent_variable)
+            bayesian_network.add_node(latent_node)
+            latent_nodes[table] = latent_node
+
+            # construct model node
+            model_node = ConditionalProbabilisticCircuit(model.variables)
+            model_node = model_node.from_unit(model.root)
+            bayesian_network.add_node(model_node)
+
+            # connect latent and model node
+            bayesian_network.add_edge(latent_node, model_node)
 
         for edge in join_graph.edges:
             source, target = edge
-            source_model = models[source]
-            target_model = models[target]
             interaction_model = self.model_loader.load_interaction_model([source, target])
+            target_node = latent_nodes[target]
+            source_node = latent_nodes[source]
+            bayesian_network.add_edge(source_node, target_node)
 
+            target_node.from_multinomial_distribution(interaction_model)
+
+        return bayesian_network
 
     def fit_to_tables(self, session: Session, tables: List[Type[DeclarativeBase]]):
         """
@@ -188,6 +211,13 @@ class Patchie(ProbabilisticCircuit):
         model = model.fit(dataframe).marginal(variables, simplify_if_univariate=False, as_deterministic_sum=True)
         return model.probabilistic_circuit
 
+    def latent_variable(self, table: Type[DeclarativeBase], model: ProbabilisticCircuit):
+        """
+        :return: A latent variable for the table with domain as index set of the models root subcircuits.
+        """
+        return RESymbolic(f"{self.model_loader.name_of_table(table)}.latent",
+                          domain=range(len(model.root.subcircuits)))
+
     def fit_interaction_model(self, session: Session, table_1: Type[DeclarativeBase], table_2: Type[DeclarativeBase]):
         """
         Fit an interaction term between the two tables. The tables must be join-able.
@@ -210,10 +240,8 @@ class Patchie(ProbabilisticCircuit):
         assert isinstance(model_2.root, DeterministicSumUnit)
 
         # create the latent variables
-        latent_variable_1 = RESymbolic(f"{table_1.__tablename__}.latent",
-                                       domain=range(len(model_1.root.subcircuits)))
-        latent_variable_2 = RESymbolic(f"{table_2.__tablename__}.latent",
-                                       domain=range(len(model_2.root.subcircuits)))
+        latent_variable_1 = self.latent_variable(table_1, model_1)
+        latent_variable_2 = self.latent_variable(table_2, model_2)
 
         # get the relevant columns from the tables
         columns_1, _, _ = relevant_columns_from(table_1.__table__, 0)

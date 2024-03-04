@@ -5,12 +5,21 @@ from probabilistic_model.probabilistic_circuit.probabilistic_circuit import Prob
 from probabilistic_model.distributions.multinomial import MultinomialDistribution
 import os
 import json
-
+from sqlalchemy.orm.decl_api import DCTransformDeclarative
+from sqlalchemy.sql.annotation import AnnotatedTable
 
 class ModelLoader:
     """
     Class that serves as an interface for loading models that describe sql tables.
     """
+
+    def name_of_table(self, table: Type[DeclarativeBase]) -> str:
+        if isinstance(table, (DCTransformDeclarative, DeclarativeBase)):
+            return f"{table.__tablename__}"
+        elif isinstance(table, AnnotatedTable):
+            return f"{table.name}"
+        else:
+            raise ValueError(f"Table {table} is not a valid table type. Type is {type(table)}.")
 
     def load_model(self, table: Type[DeclarativeBase]) -> ProbabilisticCircuit:
         """
@@ -28,7 +37,7 @@ class ModelLoader:
         """
         raise NotImplementedError
 
-    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
+    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> MultinomialDistribution:
         """
         Load an interaction model that describes how to connect the latent variables.
         :param tables: The tables that are involved in the interaction
@@ -46,6 +55,7 @@ class ModelLoader:
         """
         raise NotImplementedError
 
+
 class FolderModelLoader(ModelLoader):
     """
     Class that loads models from a folder.
@@ -59,13 +69,13 @@ class FolderModelLoader(ModelLoader):
         self.file_extension = file_extension
 
     def filename_of_table(self, table: Type[DeclarativeBase]) -> str:
-        return f"{table.__tablename__}{self.file_extension}"
+        return f"{self.name_of_table(table)}.{self.file_extension}"
 
     def path_of_table(self, table: Type[DeclarativeBase]) -> str:
         return os.path.join(self.folder_path, f"{self.filename_of_table(table)}")
 
     def filename_of_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> str:
-        table_names = sorted([table.__tablename__ for table in tables])
+        table_names = sorted([self.name_of_table(table) for table in tables])
         table_names = "_".join(table_names)
         return f"interaction_{table_names}.{self.file_extension}"
 
@@ -82,8 +92,11 @@ class FolderModelLoader(ModelLoader):
         with open(self.path_of_table(table), "w") as f:
             json.dump(model.to_json(), f)
 
-    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> ProbabilisticModel:
-        ...
+    def load_interaction_model(self, tables: List[Type[DeclarativeBase]]) -> MultinomialDistribution:
+        with open(self.path_of_interaction_model(tables), "r") as f:
+            model = json.load(f)
+        model = MultinomialDistribution.from_json(model)
+        return model
 
     def save_interaction_model(self, model: MultinomialDistribution, tables: List[Type[DeclarativeBase]]):
         with open(self.path_of_interaction_model(tables), "w") as f:

@@ -1,6 +1,7 @@
 import os
 import unittest
 
+from probabilistic_model.bayesian_network.distributions import ConditionalProbabilisticCircuit
 from sqlalchemy import select, func, join
 
 from orm import *
@@ -166,8 +167,19 @@ class QueryFittingTestCase(ORMMixin, unittest.TestCase):
 
     def test_query_construction(self):
         query = join(Point, ColoredPoint).join(Color)
-        load_models_from_join = self.model.load_models_from_join(query)
+        model = self.model.load_models_from_join(query)
+        self.assertEqual(len(model.variables), 7)
 
+        for node, out_degree in model.out_degree:
+            if out_degree == 0:
+                self.assertIsInstance(node, ConditionalProbabilisticCircuit)
+            else:
+                self.assertEqual(len(node.variables), 1)
+                variable = node.variable
+                self.assertTrue(variable.name.endswith("latent"))
+
+        model = model.as_probabilistic_circuit()
+        print(model)
 
 if __name__ == '__main__':
     unittest.main()
