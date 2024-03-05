@@ -10,7 +10,7 @@ from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit, SmoothSumUnit,
                                                                              DeterministicSumUnit)
 from probabilistic_model.distributions.multinomial import MultinomialDistribution
-from random_events.events import Event
+from random_events.events import Event, EncodedEvent
 from random_events.variables import Symbolic as RESymbolic
 from sqlalchemy.orm import DeclarativeBase
 
@@ -20,7 +20,7 @@ from sqlalchemy.sql.operators import in_op, not_in_op
 from sqlalchemy import Table, select
 from sqlalchemy.orm import Session
 
-from typing_extensions import Type, List
+from typing_extensions import Type, List, Union
 
 from .utils import binary_expression_to_continuous_constraint
 from .variables import Integer, Continuous, Symbolic, Column, Variable, variables_and_dataframe_from_objects, \
@@ -51,13 +51,21 @@ class Patchie(ProbabilisticCircuit):
     def variables(self) -> Tuple[Variable, ...]:
         return super().variables
 
+    def preprocess_event(self, event: Union[Event, ColumnElement]) -> EncodedEvent:
+        if isinstance(event, Event):
+            return super().preprocess_event(event)
+        elif isinstance(event, ColumnElement):
+            return self.preprocess_event(self.event_from_query(event))
+        else:
+            raise ValueError(f"Event of type {type(event)} can not be processed.")
+
     def get_variable_that_matches_column(self, column: ColumnElement) -> Variable:
         """
         Get the variable that matches the column.
         :param column: The column to match.
         :return: The variable that matches the column.
         """
-        wrapped_column = Column(column)
+        wrapped_column = Column.from_column_element(column)
         for variable in self.variables:
             if variable.name == wrapped_column.name:
                 return variable
@@ -144,7 +152,14 @@ class Patchie(ProbabilisticCircuit):
 
         return table
 
-    def load_models_from_join(self, join_statement: Join) -> BayesianNetwork:
+    def bayesian_network_from_join(self, join_statement: Join) -> Tuple[BayesianNetwork, List[Symbolic]]:
+        """
+        Create a bayesian network from a join statement using the model loader to access the necessary models
+        and interactions. The join statement has to be a tree.
+
+        :param join_statement: The join statement to create the bayesian network from.
+        :return: The bayesian network that is described by the join statement.
+        """
         join_graph = nx.DiGraph()
         self.add_from_join_statement_to_graph(join_statement, join_graph)
 
@@ -153,12 +168,14 @@ class Patchie(ProbabilisticCircuit):
         bayesian_network = BayesianNetwork()
 
         latent_nodes = dict()
+        latent_variables = list()
 
         for table, in_degree in join_graph.in_degree:
             model = self.model_loader.load_model(table)
 
             # construct latent node
             latent_variable = self.latent_variable(table, model)
+            latent_variables.append(latent_variable)
             if in_degree == 0:
                 latent_node = DiscreteDistribution(latent_variable, model.root.weights)
             else:
@@ -183,7 +200,23 @@ class Patchie(ProbabilisticCircuit):
 
             target_node.from_multinomial_distribution(interaction_model)
 
-        return bayesian_network
+        return bayesian_network, latent_variables
+
+    def load_from_join(self, join_statement: Join):
+        """
+        Load the model from the join statement.
+        The model is loaded as probabilistic circuit and added to this model nodes.
+        All latent variables are marginalized.
+
+        :param join_statement: The join statement to load the model from.
+        """
+        bayesian_network, latent_variables = self.bayesian_network_from_join(join_statement)
+        pc = bayesian_network.as_probabilistic_circuit().simplify()
+        marginal_variables = [variable for variable in pc.variables if variable not in latent_variables]
+        pc = pc.marginal(marginal_variables)
+        self.add_nodes_from(pc.nodes)
+        self.add_edges_from(pc.unweighted_edges)
+        self.add_weighted_edges_from(pc.weighted_edges)
 
     def fit_to_tables(self, session: Session, tables: List[Type[DeclarativeBase]]):
         """

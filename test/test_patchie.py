@@ -74,7 +74,7 @@ class ContinuousPatchieTestCase(ORMMixin, unittest.TestCase):
 
     def test_model_creation_from_join(self):
         query = join(Point, ColoredPoint).join(Color)
-        self.model.load_models_from_join(query)
+        self.model.bayesian_network_from_join(query)
 
 
 class DiscretePatchieTestCase(ORMMixin, unittest.TestCase):
@@ -167,7 +167,7 @@ class QueryFittingTestCase(ORMMixin, unittest.TestCase):
 
     def test_query_construction(self):
         query = join(Point, ColoredPoint).join(Color)
-        model = self.model.load_models_from_join(query)
+        model, latent_variables = self.model.bayesian_network_from_join(query)
         self.assertEqual(len(model.variables), 7)
 
         for node, out_degree in model.out_degree:
@@ -178,8 +178,12 @@ class QueryFittingTestCase(ORMMixin, unittest.TestCase):
                 variable = node.variable
                 self.assertTrue(variable.name.endswith("latent"))
 
-        model = model.as_probabilistic_circuit()
-        print(model)
+        self.model.load_from_join(query)
+        self.assertEqual(len(self.model.variables), 4)
+        query = (Point.x > 0) | (Point.x < -1)
+        probability = self.model.probability(query)
+        self.assertGreater(probability, 0)
+
 
 if __name__ == '__main__':
     unittest.main()
