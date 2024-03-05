@@ -4,11 +4,10 @@ from typing import Tuple
 
 import networkx as nx
 import numpy as np
-from matplotlib import pyplot as plt
 from probabilistic_model.bayesian_network.bayesian_network import BayesianNetwork
 from probabilistic_model.learning.jpt.jpt import JPT
-from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit, SmoothSumUnit,
-                                                                             DeterministicSumUnit)
+from probabilistic_model.probabilistic_circuit.probabilistic_circuit import (ProbabilisticCircuit, DeterministicSumUnit,
+                                                                             ProbabilisticCircuitMixin)
 from probabilistic_model.distributions.multinomial import MultinomialDistribution
 from random_events.events import Event, EncodedEvent
 from random_events.variables import Symbolic as RESymbolic
@@ -20,15 +19,14 @@ from sqlalchemy.sql.operators import in_op, not_in_op
 from sqlalchemy import Table, select
 from sqlalchemy.orm import Session
 
-from typing_extensions import Type, List, Union
+from typing_extensions import Type, List, Union, Optional
 
 from .utils import binary_expression_to_continuous_constraint
-from .variables import Integer, Continuous, Symbolic, Column, Variable, variables_and_dataframe_from_objects, \
-    relevant_columns_from, variables_and_dataframe_from_columns_and_query
-from .model_loader import ModelLoader
+from .variables import Integer, Continuous, Symbolic, Column, Variable, relevant_columns_from, variables_and_dataframe_from_columns_and_query
+from patchie.model_loader.model_loader import ModelLoader
 import pandas as pd
 import tqdm
-from .constants import tomato_red, tomato_green, tomato_skin_color
+from .constants import tomato_red
 from probabilistic_model.bayesian_network.distributions import (DiscreteDistribution, ConditionalProbabilisticCircuit,
                                                                 ConditionalProbabilityTable)
 
@@ -44,8 +42,22 @@ class HyperParameters:
 
 class Patchie(ProbabilisticCircuit):
 
-    model_loader: ModelLoader
+    model_loader: Optional[ModelLoader]
+    """
+    The interface used to load and save models and interaction models.
+    """
+
     relation_depth: int = 1
+    """
+    The depth of relations to consider when learning models.
+    In learning, the data is gathered from the table of consideration and all tables that are reachable by a join.
+    This is done recursively, until tables require more than ``relation_depth`` joins to be reached.
+    """
+
+    def __init__(self, model_loader: Optional[ModelLoader] = None, relation_depth: int = 1):
+        super().__init__()
+        self.model_loader = model_loader
+        self.relation_depth = relation_depth
 
     @property
     def variables(self) -> Tuple[Variable, ...]:
@@ -217,6 +229,20 @@ class Patchie(ProbabilisticCircuit):
         self.add_nodes_from(pc.nodes)
         self.add_edges_from(pc.unweighted_edges)
         self.add_weighted_edges_from(pc.weighted_edges)
+
+    def load_table(self, table: Type[DeclarativeBase]) -> ProbabilisticCircuitMixin:
+        """
+        Load the model from the table.
+        The model is loaded as probabilistic circuit and added to this model nodes.
+
+        :param table: The table to load the model from.
+        :return: The root of the loaded model.
+        """
+        pc = self.model_loader.load_model(table)
+        self.add_nodes_from(pc.nodes)
+        self.add_edges_from(pc.unweighted_edges)
+        self.add_weighted_edges_from(pc.weighted_edges)
+        return pc.root
 
     def fit_to_tables(self, session: Session, tables: List[Type[DeclarativeBase]]):
         """

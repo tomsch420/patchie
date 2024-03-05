@@ -5,11 +5,11 @@ from probabilistic_model.bayesian_network.distributions import ConditionalProbab
 from sqlalchemy import select, func, join
 
 from orm import *
-from patchie.model_loader import FolderModelLoader
+from patchie.model_loader.folder_loader import FolderModelLoader
+from patchie.model_loader.mlflow_loader import MLFlowModelLoader
 from patchie.patchie import Patchie
-from patchie.variables import (variables_and_dataframe_from_objects, Symbolic,
+from patchie.variables import (Symbolic,
                                variables_and_dataframe_from_columns_and_query, relevant_columns_from, Column)
-from probabilistic_model.learning.jpt.jpt import JPT
 from probabilistic_model.probabilistic_circuit.distributions import SymbolicDistribution
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -23,14 +23,9 @@ class ContinuousPatchieTestCase(ORMMixin, unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        self.model = Patchie()
-        points = self.session.query(Point).limit(500).all()
-        variables, dataframe = variables_and_dataframe_from_objects(points)
-        model = JPT(variables, min_samples_leaf=0.2)
-        model.fit(dataframe)
-        self.model.add_edges_from(model.probabilistic_circuit.unweighted_edges)
-        self.model.add_weighted_edges_from(model.probabilistic_circuit.weighted_edges)
-        self.model.add_nodes_from(model.probabilistic_circuit.nodes)
+        self.model = Patchie(FolderModelLoader(tempfile.mkdtemp()))
+        self.model.fit_to_tables(self.session, [Point])
+        self.model.load_table(Point)
 
     def test_setup(self):
         self.assertIsNotNone(self.session.connection())
@@ -71,10 +66,6 @@ class ContinuousPatchieTestCase(ORMMixin, unittest.TestCase):
         self.assertEqual(event["Point.x"],
                          portion.open(0, float("inf")) | portion.open(float("-inf"), -1))
         self.assertEqual(event["Point.y"], portion.open(1, 2))
-
-    def test_model_creation_from_join(self):
-        query = join(Point, ColoredPoint).join(Color)
-        self.model.bayesian_network_from_join(query)
 
 
 class DiscretePatchieTestCase(ORMMixin, unittest.TestCase):
@@ -178,6 +169,30 @@ class QueryFittingTestCase(ORMMixin, unittest.TestCase):
                 variable = node.variable
                 self.assertTrue(variable.name.endswith("latent"))
 
+        self.model.load_from_join(query)
+        self.assertEqual(len(self.model.variables), 4)
+        query = (Point.x > 0) | (Point.x < -1)
+        probability = self.model.probability(query)
+        self.assertGreater(probability, 0)
+
+class MLFlowFittingTestCase(ORMMixin, unittest.TestCase):
+
+    model: Patchie
+    folder: str
+
+    def setUp(self):
+        super().setUp()
+        self.model = Patchie(MLFlowModelLoader())
+        self.model.fit_to_tables(self.session, [Point, ColoredPoint, Color])
+        interaction_model = self.model.fit_interaction_model(self.session, ColoredPoint, Point)
+        self.model.model_loader.save_interaction_model(interaction_model, [ColoredPoint, Point])
+        interaction_model = self.model.fit_interaction_model(self.session, ColoredPoint, Color)
+        self.model.model_loader.save_interaction_model(interaction_model, [ColoredPoint, Color])
+
+    def test_query_construction(self):
+        query = join(Point, ColoredPoint).join(Color)
+        model, latent_variables = self.model.bayesian_network_from_join(query)
+        self.assertEqual(len(model.variables), 7)
         self.model.load_from_join(query)
         self.assertEqual(len(self.model.variables), 4)
         query = (Point.x > 0) | (Point.x < -1)

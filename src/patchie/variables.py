@@ -299,59 +299,6 @@ def query_from_relevant_columns_result(current_table: Table,
     return query, foreign_columns
 
 
-def variables_and_dataframe_from_objects(objects: List[Type[DeclarativeBase]],
-                                         relation_depth: int = 1) -> Tuple[List[Variable], pd.DataFrame]:
-    """
-    Get the variables and dataframe from a list of orm objects.
-    :param objects: The objects to get the variables and dataframe from.
-    :return: The variables and dataframe.
-    """
-
-    dataframe = dataframe_from_objects(objects, relation_depth)
-    jpt_variables = infer_variables_from_dataframe(dataframe)
-    table = objects[0].__table__
-
-    columns = relevant_columns_from(table)
-
-    new_variables = []
-
-    for variable, column in zip(jpt_variables, columns):
-
-        wrapped_column = Column.from_column_element(column)
-        if isinstance(variable, JPTContinuous):
-            new_variable = Continuous(wrapped_column, variable.mean, variable.std)
-
-        elif isinstance(variable, JPTInteger):
-            new_variable = Integer(wrapped_column, variable.domain, variable.mean, variable.std)
-
-        elif isinstance(variable, RESymbolic):
-            new_variable = Symbolic(wrapped_column, variable.domain)
-
-        else:
-            raise TypeError(f"Variable of type {type(variable)} not known.")
-
-        new_variables.append(new_variable)
-
-    column_names = [variable.name for variable in new_variables]
-
-    dataframe.columns = column_names
-
-    return new_variables, dataframe
-
-
-def dataframe_from_objects(objects: List[Type[DeclarativeBase]],
-                           relation_depth: int = 1) -> pd.DataFrame:
-    table = objects[0].__table__
-
-    columns, foreign_columns = relevant_columns_from(table, relation_depth)
-
-    data = [[getattr(obj, column.name) for column in columns] for obj in objects]
-
-    result = pd.DataFrame(data, columns=[column.name for column in columns])
-
-    return result
-
-
 def variables_and_dataframe_from_columns_and_query(columns: List[Label], foreign_columns: List[Label],
                                                    query: Select, session: Session) \
         -> Tuple[List[Variable], List[Variable], pd.DataFrame]:

@@ -14,24 +14,24 @@ import random
 class VariableTestCase(unittest.TestCase):
 
     def test_integer(self):
-        variable = Integer(SQLColumn(Color.color), {0, 1}, 0.5, 1)
+        variable = Integer(Column.from_column_element(Color.color), {0, 1}, 0.5, 1)
         self.assertEqual(variable.name, "Color.color")
 
     def test_symbolic(self):
-        variable = Symbolic(SQLColumn(Color.color), {0, 1})
+        variable = Symbolic(Column.from_column_element(Color.color), {0, 1})
         self.assertEqual(variable.name, "Color.color")
 
     def test_continuous(self):
-        variable = Continuous(SQLColumn(Point.x), 0.5, 1)
+        variable = Continuous(Column.from_column_element(Point.x), 0.5, 1)
         self.assertEqual(variable.name, "Point.x")
 
     def test_column_mixin_with_alias(self):
         column = aliased(Color, name="color2").color
-        variable = Continuous(SQLColumn(column), 0.5, 1)
+        variable = Continuous(Column.from_column_element(column), 0.5, 1)
         self.assertEqual(variable.name, "color2.color")
 
     def test_serialization(self):
-        variable = Integer(SQLColumn(Color.color), {0, 1}, 0.5, 1)
+        variable = Integer(Column.from_column_element(Color.color), {0, 1}, 0.5, 1)
         data = variable.to_json()
         deserialized = Integer.from_json(data)
         self.assertEqual(variable, deserialized)
@@ -55,8 +55,8 @@ class VariableTestCase(unittest.TestCase):
 
     def test_sql_column_from_label(self):
         label = Point.x.label("ColoredPoint.Point.x")
-        column = SQLColumn.from_column_element(label)
-        self.assertEqual(column.column_name, "x")
+        column = Column.from_column_element(label)
+        self.assertEqual(column.column_name, "ColoredPoint.Point.x")
         self.assertEqual(column.table_name, "Point")
 
 
