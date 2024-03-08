@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patchie"
+authors = [
+    { name="Tom Schierenbeck", email="tom_sch@uni-bremen.de" },
+
+]
+description = "A library for interaction with probabilistic models using SQL statements."
+readme = "README.md"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+keywords=["probabilistic models", "probabilistic machine learning", "probability theory", "variables",
+    "reasoning under uncertainty", "sql"]
+dynamic = ["version", "dependencies"]
+
+[project.urls]
+"Source" = 'https://github.com/tomsch420/patchie'
+"Bug Tracker" = 'https://github.com/tomsch420/patchie/issues'
+
+[tool.setuptools.packages.find]
+where = ["src"]  # list of folders that contain the packages (["."] by default)
+include = ["patchie*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "patchie.__version__"}
+dependencies = {file = "requirements.txt"}
