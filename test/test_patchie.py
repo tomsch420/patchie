@@ -175,6 +175,7 @@ class QueryFittingTestCase(ORMMixin, unittest.TestCase):
         probability = self.model.probability(query)
         self.assertGreater(probability, 0)
 
+@unittest.skip("MLFlow is not available in the CI")
 class MLFlowFittingTestCase(ORMMixin, unittest.TestCase):
 
     model: Patchie
@@ -197,6 +198,7 @@ class MLFlowFittingTestCase(ORMMixin, unittest.TestCase):
         self.assertEqual(len(self.model.variables), 4)
         query = (Point.x > 0) | (Point.x < -1)
         probability = self.model.probability(query)
+        print(probability)
         self.assertGreater(probability, 0)
 
 

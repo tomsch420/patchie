@@ -1,5 +1,5 @@
-probabilistic_model==3.3.2
-sqlalchemy==2.0.27
+probabilistic_model>=3.3.5
+sqlalchemy==2.0.28
 pymysql>=1.1.0
 numpy>=1.26.4
 pandas>=1.3.5

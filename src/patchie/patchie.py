@@ -22,8 +22,10 @@ from sqlalchemy.orm import Session
 from typing_extensions import Type, List, Union, Optional
 
 from .utils import binary_expression_to_continuous_constraint
-from .variables import Integer, Continuous, Symbolic, Column, Variable, relevant_columns_from, variables_and_dataframe_from_columns_and_query
-from patchie.model_loader.model_loader import ModelLoader
+from .variables import (Integer, Continuous, Symbolic, Column, Variable, relevant_columns_from,
+                        variables_and_dataframe_from_columns_and_query)
+from .model_loader.model_loader import ModelLoader
+from .query_converter import QueryConverter
 import pandas as pd
 import tqdm
 from .constants import tomato_red
@@ -40,7 +42,7 @@ class HyperParameters:
     max_depth: float = float("inf")
 
 
-class Patchie(ProbabilisticCircuit):
+class Patchie(ProbabilisticCircuit, QueryConverter):
 
     model_loader: Optional[ModelLoader]
     """
@@ -70,70 +72,6 @@ class Patchie(ProbabilisticCircuit):
             return self.preprocess_event(self.event_from_query(event))
         else:
             raise ValueError(f"Event of type {type(event)} can not be processed.")
-
-    def get_variable_that_matches_column(self, column: ColumnElement) -> Variable:
-        """
-        Get the variable that matches the column.
-        :param column: The column to match.
-        :return: The variable that matches the column.
-        """
-        wrapped_column = Column.from_column_element(column)
-        for variable in self.variables:
-            if variable.name == wrapped_column.name:
-                return variable
-        raise ValueError(f"No variable matches the column {column}")
-
-    def event_from_binary_expression(self, binary_expression: BinaryExpression) -> Event:
-        """
-        Create an event from a binary expression.
-        :param binary_expression: The expression to create the event from.
-        :return: The event that is described by the binary expression.
-        """
-        event = Event()
-        variable = self.get_variable_that_matches_column(binary_expression.left)
-
-        if isinstance(variable, Continuous):
-            constraint = binary_expression_to_continuous_constraint(binary_expression.operator,
-                                                                    binary_expression.right.effective_value)
-        elif isinstance(variable, (Integer, Symbolic)):
-            if binary_expression.operator == operator.eq:
-                constraint = {binary_expression.right.effective_value}
-            elif binary_expression.operator == operator.ne:
-                constraint = set(variable.domain) - {binary_expression.right.effective_value}
-            elif binary_expression.operator is in_op:
-                constraint = set(binary_expression.right.effective_value)
-            elif binary_expression.operator is not_in_op:
-                constraint = set(variable.domain) - set(binary_expression.right.effective_value)
-            else:
-                raise NotImplementedError(f"Operator {binary_expression.operator} not supported.")
-        else:
-            raise NotImplementedError(f"Variable type {type(variable)} not supported.")
-        event[variable] = constraint
-        return event
-
-    def event_from_boolean_clause_list(self, boolean_clause_list: BooleanClauseList) -> Event:
-        """
-        Create an event from a boolean clause list.
-        :param boolean_clause_list: The clause list to create the event from.
-        :return: The event that is described by the clause list.
-        """
-        event = Event()
-        for clause in boolean_clause_list.clauses:
-            event = boolean_clause_list.operator(event, self.event_from_query(clause))
-        return event
-
-    def event_from_query(self, query: ColumnElement) -> Event:
-        """
-        Construct an event from a sql query.
-        :param query: The query to parse.
-        :return: The event that is described by the query.
-        """
-        if isinstance(query, BinaryExpression):
-            return self.event_from_binary_expression(query)
-        elif isinstance(query, BooleanClauseList):
-            return self.event_from_boolean_clause_list(query)
-        else:
-            raise NotImplementedError(f"Query of type {type(query)} not supported.")
 
     def add_from_join_statement_to_graph(self, join_statement: Join, join_graph: nx.DiGraph):
 
